@@ -9,9 +9,13 @@ from playwright_stealth import Stealth
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-# ================= Telegram Credentials =================
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8790446278:AAGsQeiivf-jSCrM87f7YyznahPwklfUF9U")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8713490893")
+# ================= ดึงข้อมูลจาก GitHub Secrets =================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    print("[Error] ไม่พบ TELEGRAM_BOT_TOKEN หรือ TELEGRAM_CHAT_ID กรุณาตั้งค่าใน GitHub Secrets")
+    sys.exit(1)
 
 LAZADA_URL = "https://www.lazada.co.th/products/pre-order-iphone-duo-23-69-i16250067859-s127511251733.html"
 SHOPEE_URL = "https://shopee.co.th/product/989284521/45567695488"
@@ -31,7 +35,6 @@ def save_state(state: dict):
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         
-        # ถ้าทำงานอยู่บน GitHub Actions ให้ commit & push state.json กลับคลัง
         if os.getenv("GITHUB_ACTIONS"):
             os.system('git config user.name "Stock Monitor Bot"')
             os.system('git config user.email "bot@github-actions.local"')
@@ -117,7 +120,6 @@ def check_lazada(page, state: dict) -> bool:
                 prev_info = state.get(state_key, {})
                 was_in_stock = prev_info.get("status") == "IN_STOCK"
 
-                # 1. กรณี: เพิ่งมีของเข้า!
                 if is_available and not was_in_stock:
                     now_str = datetime.now().strftime('%H:%M:%S')
                     print(f"  🎉 [Lazada เข้าใหม่!] {col} {cap}")
@@ -136,7 +138,6 @@ def check_lazada(page, state: dict) -> bool:
                     }
                     state_changed = True
 
-                # 2. กรณี: ของที่เคยเข้า ตอนนี้หมดลงแล้ว! (คำนวณระยะเวลา)
                 elif not is_available and was_in_stock:
                     start_iso = prev_info.get("in_stock_time")
                     start_dt = datetime.fromisoformat(start_iso) if start_iso else datetime.now()
@@ -177,7 +178,6 @@ def check_shopee(page, state: dict) -> bool:
         page.goto(SHOPEE_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(3500)
 
-        # ข้ามปุ่มเลือกภาษาถ้ามี
         thai_btn = page.locator("button:has-text('ไทย')")
         if thai_btn.count() > 0:
             thai_btn.first.click()
@@ -242,7 +242,7 @@ def check_shopee(page, state: dict) -> bool:
 
 def main():
     print("=" * 60)
-    print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (พร้อมระบบจับเวลา)")
+    print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (Secure Secrets Mode)")
     print("=" * 60)
 
     state = load_state()
