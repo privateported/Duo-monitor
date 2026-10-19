@@ -2,8 +2,8 @@ name: Stock Monitor Auto 24h
 
 on:
   schedule:
-    # รันอัตโนมัติทุกๆ 10 นาที ตลอด 24 ชม.
-    - cron: '*/10 * * * *'
+    # รันอัตโนมัติทุกๆ 5 นาที ตลอด 24 ชม. (โควตา Unlimited ฟรี)
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     # เปิดให้กด Run workflow ด้วยตนเองได้ทุกเมื่อ
 
@@ -17,7 +17,7 @@ permissions:
 jobs:
   check-stock:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Checkout Repository

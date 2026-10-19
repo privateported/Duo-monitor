@@ -101,7 +101,7 @@ def check_lazada(page, state: dict) -> bool:
             if col_el.count() > 0:
                 found_any = True
                 col_el.first.click(force=True)
-                page.wait_for_timeout(400)
+                page.wait_for_timeout(350)
 
             for cap in capacities:
                 state_key = f"Lazada_{col}_{cap}"
@@ -109,7 +109,7 @@ def check_lazada(page, state: dict) -> bool:
                 if cap_el.count() > 0:
                     found_any = True
                     cap_el.first.click(force=True)
-                    page.wait_for_timeout(400)
+                    page.wait_for_timeout(350)
 
                 is_out = (page.locator("text='สินค้าหมด'").count() > 0 or 
                           page.locator("text='สินค้าหมดสต็อก'").count() > 0)
@@ -242,7 +242,7 @@ def check_shopee(page, state: dict) -> bool:
 
 def main():
     print("=" * 60)
-    print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (Secure Secrets Mode)")
+    print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (รอบทุก 5 นาที)")
     print("=" * 60)
 
     state = load_state()
@@ -264,25 +264,19 @@ def main():
         page = context.new_page()
         Stealth().apply_stealth_sync(page)
 
-        for cycle in range(1, 3):
-            print(f"\n--- รอบที่ {cycle}/2 ---")
-            c1 = check_lazada(page, state)
-            time.sleep(5)
-            c2 = check_shopee(page, state)
+        c1 = check_lazada(page, state)
+        time.sleep(3)
+        c2 = check_shopee(page, state)
 
-            if c1 or c2:
-                any_change = True
-
-            if cycle < 2:
-                print("\n💤 พักรอ 70 วินาทีเพื่อเช็ครอบที่ 2...")
-                time.sleep(70)
+        if c1 or c2:
+            any_change = True
 
         browser.close()
 
     if any_change:
         save_state(state)
 
-    print("\n✓ เสร็จสิ้นรอบการทำงานบน GitHub Actions เรียบร้อย!")
+    print("\n✓ เสร็จสิ้นรอบการทำงานเรียบร้อย!")
 
 if __name__ == "__main__":
     main()
