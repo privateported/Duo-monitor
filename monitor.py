@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import random
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
@@ -101,7 +102,7 @@ def check_lazada(page, state: dict) -> bool:
             if col_el.count() > 0:
                 found_any = True
                 col_el.first.click(force=True)
-                page.wait_for_timeout(350)
+                page.wait_for_timeout(random.randint(300, 450))
 
             for cap in capacities:
                 state_key = f"Lazada_{col}_{cap}"
@@ -109,7 +110,7 @@ def check_lazada(page, state: dict) -> bool:
                 if cap_el.count() > 0:
                     found_any = True
                     cap_el.first.click(force=True)
-                    page.wait_for_timeout(350)
+                    page.wait_for_timeout(random.randint(300, 450))
 
                 is_out = (page.locator("text='สินค้าหมด'").count() > 0 or 
                           page.locator("text='สินค้าหมดสต็อก'").count() > 0)
@@ -245,6 +246,11 @@ def main():
     print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (รอบทุก 5 นาที)")
     print("=" * 60)
 
+    # Human Jitter: สุ่มหน่วงเวลาก่อนเริ่ม 1 - 8 วินาที เพื่อกระจายจังหวะเข้าชม
+    jitter = round(random.uniform(1.0, 8.0), 2)
+    print(f"🎲 Human Jitter Delay: พักสุ่มเวลา {jitter} วินาที ก่อนเริ่ม...")
+    time.sleep(jitter)
+
     state = load_state()
     any_change = False
 
@@ -265,7 +271,7 @@ def main():
         Stealth().apply_stealth_sync(page)
 
         c1 = check_lazada(page, state)
-        time.sleep(3)
+        time.sleep(random.uniform(2.0, 4.0))
         c2 = check_shopee(page, state)
 
         if c1 or c2:
