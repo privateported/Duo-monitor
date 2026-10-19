@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>iPhone Duo Stock Monitor</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --green: #10b981;
+      --red: #ef4444;
+      --primary: #3b82f6;
+      --border: #334155;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding: 16px;
+      padding-bottom: 30px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 4px;
+    }
+    .header p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 16px 0 10px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .refresh-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .card-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      width: fit-content;
+    }
+    .status-in {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+    .status-out {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .dot-green { background: var(--green); }
+    .dot-red { background: var(--red); }
+    
+    .history-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .history-detail {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .duration-highlight {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 24px;
+      color: var(--text-muted);
+      font-size: 13px;
+      background: var(--card-bg);
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>📱 iPhone Duo Monitor</h1>
+    <p>ระบบตรวจเช็คสต็อกสด 24 ชม.</p>
+  </div>
+
+  <div class="section-title">
+    <span>📦 สต็อกปัจจุบัน (Lazada & Shopee)</span>
+    <button class="refresh-btn" onclick="fetchData()">🔄 รีเฟรช</button>
+  </div>
+
+  <div class="grid" id="stock-grid">
+    <div style="grid-column: span 2; text-align: center; padding: 20px; color: var(--text-muted);">
+      กำลังโหลดข้อมูลล่าสุด...
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📜 ประวัติสต็อกย้อนหลัง</span>
+  </div>
+
+  <div id="history-list">
+    <div class="empty-state">
+      ยังไม่มีประวัติการเติมของ (ระบบกำลังเฝ้าอยู่)
+    </div>
+  </div>
+
+  <script>
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+
+    const STATE_URL = "https://raw.githubusercontent.com/privateported/Duo-monitor/main/state.json";
+
+    const ITEMS = [
+      { key: "Lazada_Star White_256GB", name: "Star White 256GB", platform: "Lazada" },
+      { key: "Lazada_Star White_512GB", name: "Star White 512GB", platform: "Lazada" },
+      { key: "Lazada_Star White_1TB", name: "Star White 1TB", platform: "Lazada" },
+      { key: "Lazada_Star White_2TB", name: "Star White 2TB", platform: "Lazada" },
+      { key: "Lazada_Night Sky_256GB", name: "Night Sky 256GB", platform: "Lazada" },
+      { key: "Lazada_Night Sky_512GB", name: "Night Sky 512GB", platform: "Lazada" },
+      { key: "Lazada_Night Sky_1TB", name: "Night Sky 1TB", platform: "Lazada" },
+      { key: "Lazada_Night Sky_2TB", name: "Night Sky 2TB", platform: "Lazada" },
+      { key: "Shopee_All", name: "Shopee รวมทุกรุ่น", platform: "Shopee" }
+    ];
+
+    async function fetchData() {
+      try {
+        const res = await fetch(STATE_URL + "?nocache=" + new Date().getTime());
+        if (!res.ok) throw new Error("ไม่สามารถโหลดไฟล์ state.json ได้");
+        const state = await res.json();
+        renderStock(state);
+        renderHistory(state);
+      } catch (err) {
+        console.error(err);
+        // Default to out of stock if state is empty
+        renderStock({});
+      }
+    }
+
+    function renderStock(state) {
+      const grid = document.getElementById("stock-grid");
+      grid.innerHTML = "";
+
+      ITEMS.forEach(item => {
+        const info = state[item.key] || {};
+        const isInStock = info.status === "IN_STOCK";
+
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <div>
+            <div class="card-title">${item.name}</div>
+            <div class="card-sub">${item.platform}</div>
+          </div>
+          <div class="status-badge ${isInStock ? 'status-in' : 'status-out'}">
+            <span class="dot ${isInStock ? 'dot-green' : 'dot-red'}"></span>
+            ${isInStock ? 'มีสินค้า' : 'สินค้าหมด'}
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderHistory(state) {
+      const container = document.getElementById("history-list");
+      const history = state.history || [];
+
+      if (history.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            ยังไม่มีประวัติการเติมของล่าสุด<br>
+            <span style="font-size: 11px; opacity: 0.8;">(เมื่อมีของเข้าและหมด ระบบจะบันทึกอัตโนมัติ)</span>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = "";
+      history.slice().reverse().forEach(h => {
+        const card = document.createElement("div");
+        card.className = "history-card";
+        card.innerHTML = `
+          <div class="history-header">
+            <span>📱 ${h.model} (${h.platform})</span>
+            <span style="color: var(--green);">เติมสินค้า</span>
+          </div>
+          <div class="history-detail">
+            ⏰ <b>เวลาเข้า:</b> ${h.start_time}<br>
+            ⏳ <b>เวลาหมด:</b> ${h.end_time || '-'}<br>
+            ⏱️ <b>ระยะเวลาที่ของอยู่:</b> <span class="duration-highlight">${h.duration || 'กำลังมีของ'}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    fetchData();
+  </script>
+</body>
+</html>

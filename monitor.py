@@ -29,7 +29,7 @@ def load_state() -> dict:
                 return json.load(f)
         except Exception as e:
             print(f"[State Load Error] {e}")
-    return {}
+    return {"history": []}
 
 def save_state(state: dict):
     try:
@@ -159,6 +159,18 @@ def check_lazada(page, state: dict) -> bool:
                         "status": "OUT_OF_STOCK",
                         "last_out_time": end_dt.isoformat()
                     }
+                    
+                    # บันทึกประวัติลง history list เพื่อแสดงบน Dashboard
+                    if "history" not in state:
+                        state["history"] = []
+                    state["history"].append({
+                        "platform": "Lazada",
+                        "model": f"{col} {cap}",
+                        "start_time": start_dt.strftime('%d/%m/%Y %H:%M:%S'),
+                        "end_time": end_dt.strftime('%d/%m/%Y %H:%M:%S'),
+                        "duration": duration_str
+                    })
+                    state["history"] = state["history"][-50:] # เก็บ 50 รายการล่าสุด
                     state_changed = True
 
         if found_any:
@@ -232,6 +244,16 @@ def check_shopee(page, state: dict) -> bool:
                 "status": "OUT_OF_STOCK",
                 "last_out_time": end_dt.isoformat()
             }
+            if "history" not in state:
+                state["history"] = []
+            state["history"].append({
+                "platform": "Shopee",
+                "model": "iPhone Duo",
+                "start_time": start_dt.strftime('%d/%m/%Y %H:%M:%S'),
+                "end_time": end_dt.strftime('%d/%m/%Y %H:%M:%S'),
+                "duration": duration_str
+            })
+            state["history"] = state["history"][-50:]
             state_changed = True
         else:
             print("  ✓ Shopee ตรวจสอบแล้ว (ยังหมดอยู่)")
@@ -246,7 +268,6 @@ def main():
     print("🚀 เริ่มรอบตรวจเช็คสต็อกบน GitHub Actions (รอบทุก 5 นาที)")
     print("=" * 60)
 
-    # Human Jitter: สุ่มหน่วงเวลาก่อนเริ่ม 1 - 8 วินาที เพื่อกระจายจังหวะเข้าชม
     jitter = round(random.uniform(1.0, 8.0), 2)
     print(f"🎲 Human Jitter Delay: พักสุ่มเวลา {jitter} วินาที ก่อนเริ่ม...")
     time.sleep(jitter)
@@ -279,7 +300,8 @@ def main():
 
         browser.close()
 
-    if any_change:
+    # บันทึกสถานะเริ่มต้นเสมอเพื่อให้ Dashboard มีข้อมูลแสดง
+    if any_change or not os.path.exists(STATE_FILE):
         save_state(state)
 
     print("\n✓ เสร็จสิ้นรอบการทำงานเรียบร้อย!")
