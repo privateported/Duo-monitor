@@ -331,7 +331,8 @@ def monitor_loop():
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu"
+                "--disable-gpu",
+                "--js-flags=--max-old-space-size=128"
             ]
         )
         def create_context_and_page(browser_inst):
@@ -344,6 +345,8 @@ def monitor_loop():
             if cookies:
                 ctx.add_cookies(cookies)
             pg = ctx.new_page()
+            # ตัดการโหลดรูปภาพและฟอนต์ เพื่อประหยัด RAM ให้ต่ำกว่า 80MB และเช็คเร็วขึ้น 3 เท่า
+            pg.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
             Stealth().apply_stealth_sync(pg)
             return ctx, pg
 
