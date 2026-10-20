@@ -1,0 +1,18 @@
+name: Keep Render Alive 24/7
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render App
+        run: |
+          if [ -n "${{ secrets.RENDER_APP_URL }}" ]; then
+            curl -s "${{ secrets.RENDER_APP_URL }}" > /dev/null && echo "Pinged Render successfully!" || echo "Ping failed"
+          else
+            echo "No RENDER_APP_URL secret set. Add your render URL to secrets if you want GitHub Actions to keep it awake."
+          fi
