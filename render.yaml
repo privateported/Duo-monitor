@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: iphone-duo-monitor
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        value: "8790446278:AAGsQeiivf-jSCrM87f7YyznahPwklfUF9U"
+      - key: TELEGRAM_CHAT_ID
+        value: "8713490893,-5092812499"
+      - key: PORT
+        value: "10000"
