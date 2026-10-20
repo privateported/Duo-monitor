@@ -112,8 +112,8 @@ def check_lazada(page, state: dict) -> tuple[bool, str]:
     print(f"\n🔍 [{now_ts}] ตรวจเช็ค Lazada...")
     status_summary = "ปกติ (สินค้าหมดทุกรุ่น)"
     try:
-        page.goto(LAZADA_URL, wait_until="domcontentloaded", timeout=25000)
-        page.wait_for_timeout(2000)
+        page.goto(LAZADA_URL, wait_until="commit", timeout=25000)
+        page.wait_for_timeout(3500)
 
         content = page.content()
         is_punish = ("punish" in page.url or 
@@ -233,8 +233,8 @@ def check_shopee(page, state: dict) -> tuple[bool, str]:
     print(f"🔍 [{now_ts}] ตรวจเช็ค Shopee...")
     status_summary = "ปกติ (สินค้าหมด)"
     try:
-        page.goto(SHOPEE_URL, wait_until="domcontentloaded", timeout=25000)
-        page.wait_for_timeout(2000)
+        page.goto(SHOPEE_URL, wait_until="commit", timeout=25000)
+        page.wait_for_timeout(3000)
 
         thai_btn = page.locator("button:has-text('ไทย')")
         if thai_btn.count() > 0:
