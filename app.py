@@ -58,15 +58,10 @@ def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
-                st = json.load(f)
-                if "total_checks" in st and st["total_checks"] > RUNTIME_METRICS.get("total_checks", 0):
-                    RUNTIME_METRICS["total_checks"] = st["total_checks"]
-                if "recent_activity" in st and isinstance(st["recent_activity"], list) and len(st["recent_activity"]) > 0:
-                    RUNTIME_METRICS["recent_activity"] = st["recent_activity"]
-                return st
+                return json.load(f)
         except Exception as e:
             print(f"[State Load Error] {e}")
-    return {"history": [], "total_checks": 0, "recent_activity": []}
+    return {"history": []}
 
 def save_state(state: dict):
     try:
@@ -334,6 +329,10 @@ def monitor_loop():
     print("=" * 65)
 
     state = load_state()
+    if "total_checks" in state:
+        RUNTIME_METRICS["total_checks"] = state["total_checks"]
+    if "recent_activity" in state and isinstance(state["recent_activity"], list) and len(state["recent_activity"]) > 0:
+        RUNTIME_METRICS["recent_activity"] = state["recent_activity"]
     RUNTIME_METRICS["status"] = "Active (Monitoring 24/7)"
 
     with sync_playwright() as p:
@@ -345,6 +344,7 @@ def monitor_loop():
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--blink-settings=imagesEnabled=false",
                 "--js-flags=--max-old-space-size=128"
             ]
         )
@@ -360,10 +360,13 @@ def monitor_loop():
             pg = ctx.new_page()
             
             def block_heavy(route):
-                if route.request.resource_type in ["image", "media", "font"]:
-                    route.abort()
-                else:
-                    route.continue_()
+                try:
+                    if route.request.resource_type in ["image", "media", "font"]:
+                        route.abort()
+                    else:
+                        route.continue_()
+                except Exception:
+                    pass
             pg.route("**/*", block_heavy)
 
             Stealth().apply_stealth_sync(pg)
