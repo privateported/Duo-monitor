@@ -58,10 +58,15 @@ def load_state() -> dict:
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                st = json.load(f)
+                if "total_checks" in st and st["total_checks"] > RUNTIME_METRICS.get("total_checks", 0):
+                    RUNTIME_METRICS["total_checks"] = st["total_checks"]
+                if "recent_activity" in st and isinstance(st["recent_activity"], list) and len(st["recent_activity"]) > 0:
+                    RUNTIME_METRICS["recent_activity"] = st["recent_activity"]
+                return st
         except Exception as e:
             print(f"[State Load Error] {e}")
-    return {"history": []}
+    return {"history": [], "total_checks": 0, "recent_activity": []}
 
 def save_state(state: dict):
     try:
@@ -353,11 +358,18 @@ def monitor_loop():
             if cookies:
                 ctx.add_cookies(cookies)
             pg = ctx.new_page()
+            
+            def block_heavy(route):
+                if route.request.resource_type in ["image", "media", "font"]:
+                    route.abort()
+                else:
+                    route.continue_()
+            pg.route("**/*", block_heavy)
+
             Stealth().apply_stealth_sync(pg)
             return ctx, pg
 
-        context, page = create_context_and_page(browser)
-        cycle_count = 0
+        cycle_count = RUNTIME_METRICS.get("total_checks", 0)
 
         while True:
             cycle_count += 1
@@ -381,12 +393,15 @@ def monitor_loop():
             RUNTIME_METRICS["recent_activity"] = act_logs[-15:]
 
             any_change = False
+            context, page = None, None
             try:
+                context, page = create_context_and_page(browser)
+
                 c1, lzd_status = check_lazada(page, state)
                 current_log["lazada"] = lzd_status
                 current_log["shopee"] = "กำลังตรวจเช็ค..."
                 
-                time.sleep(random.uniform(1.5, 2.5))
+                time.sleep(random.uniform(1.0, 2.0))
                 c2, shp_status = check_shopee(page, state)
                 current_log["shopee"] = shp_status
 
@@ -396,9 +411,18 @@ def monitor_loop():
                 print(f"[Loop Exception] {e}")
                 RUNTIME_METRICS["last_error"] = str(e)
                 current_log["lazada"] = f"Error: {e}"
+            finally:
+                if page:
+                    try: page.close()
+                    except: pass
+                if context:
+                    try: context.close()
+                    except: pass
 
-            if any_change or not os.path.exists(STATE_FILE):
-                save_state(state)
+            # บันทึกสถานะ และประวัติรอบลง state.json ทุกครั้ง เพื่อให้ประวัติไม่หาย
+            state["total_checks"] = cycle_count
+            state["recent_activity"] = RUNTIME_METRICS["recent_activity"]
+            save_state(state)
 
             # คำนวณช่วงเวลาสุ่ม 50 - 90 วินาที แบบ non-linear
             sleep_sec = get_next_sleep_seconds()
@@ -410,13 +434,6 @@ def monitor_loop():
             delays = RUNTIME_METRICS["last_delays"]
             delays.append(sleep_sec)
             RUNTIME_METRICS["last_delays"] = delays[-10:]
-
-            # ทุก 40 รอบ ให้รีโหลด context เคลียร์ memory cache
-            if cycle_count % 40 == 0:
-                print("🧹 [Memory Maintenance] รีเฟรช browser context เพื่อรักษาความเร็วและหน่วยความจำ...")
-                page.close()
-                context.close()
-                context, page = create_context_and_page(browser)
 
             print(f"💤 สุ่มสลีปแบบ Non-linear: {sleep_sec} วินาที (ตรวจรอบถัดไปเวลา {RUNTIME_METRICS['next_check_time']} น.)...")
             time.sleep(sleep_sec)
