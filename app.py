@@ -6,7 +6,7 @@ import random
 import threading
 import requests
 from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
@@ -368,19 +368,34 @@ def monitor_loop():
 
             print(f"\n==================== [ รอบที่ #{cycle_count} | {check_time_str} น. ] ====================")
             
+            # บันทึกสถานะเริ่มรอบทันทีเพื่อให้ Dashboard แสดงผลเรียลไทม์เสมอ ไม่ต้องรอนาน
+            current_log = {
+                "cycle": cycle_count,
+                "time": check_time_str,
+                "lazada": "กำลังตรวจเช็ค...",
+                "shopee": "รอตรวจ",
+                "sleep": "-"
+            }
+            act_logs = RUNTIME_METRICS["recent_activity"]
+            act_logs.append(current_log)
+            RUNTIME_METRICS["recent_activity"] = act_logs[-15:]
+
             any_change = False
-            lzd_status = "รอตรวจ"
-            shp_status = "รอตรวจ"
             try:
                 c1, lzd_status = check_lazada(page, state)
+                current_log["lazada"] = lzd_status
+                current_log["shopee"] = "กำลังตรวจเช็ค..."
+                
                 time.sleep(random.uniform(1.5, 2.5))
                 c2, shp_status = check_shopee(page, state)
+                current_log["shopee"] = shp_status
 
                 if c1 or c2:
                     any_change = True
             except Exception as e:
                 print(f"[Loop Exception] {e}")
                 RUNTIME_METRICS["last_error"] = str(e)
+                current_log["lazada"] = f"Error: {e}"
 
             if any_change or not os.path.exists(STATE_FILE):
                 save_state(state)
@@ -390,21 +405,11 @@ def monitor_loop():
             next_run_dt = get_bkk_now() + timedelta(seconds=sleep_sec)
             RUNTIME_METRICS["next_check_in_seconds"] = sleep_sec
             RUNTIME_METRICS["next_check_time"] = next_run_dt.strftime('%H:%M:%S')
+            current_log["sleep"] = f"{sleep_sec}s"
             
             delays = RUNTIME_METRICS["last_delays"]
             delays.append(sleep_sec)
             RUNTIME_METRICS["last_delays"] = delays[-10:]
-
-            # บันทึกประวัติกิจกรรมการตรวจเช็คแสดงบนหน้าเว็บ (Live Activity Log)
-            act_logs = RUNTIME_METRICS["recent_activity"]
-            act_logs.append({
-                "cycle": cycle_count,
-                "time": check_time_str,
-                "lazada": lzd_status,
-                "shopee": shp_status,
-                "sleep": f"{sleep_sec}s"
-            })
-            RUNTIME_METRICS["recent_activity"] = act_logs[-15:]
 
             # ทุก 40 รอบ ให้รีโหลด context เคลียร์ memory cache
             if cycle_count % 40 == 0:
@@ -691,12 +696,12 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         return
 
 def run_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthDashboardHandler)
-    print(f"🌐 HTTP Dashboard Server เริ่มทำงานที่ Port {PORT}")
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthDashboardHandler)
+    print(f"🌐 Threading HTTP Dashboard Server เริ่มทำงานที่ Port {PORT}")
     server.serve_forever()
 
 if __name__ == "__main__":
-    t_server = threading.Thread(target=run_server, daemon=True)
-    t_server.start()
+    t_monitor = threading.Thread(target=monitor_loop, daemon=True)
+    t_monitor.start()
 
-    monitor_loop()
+    run_server()
