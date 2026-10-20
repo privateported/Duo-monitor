@@ -12,6 +12,10 @@ from playwright_stealth import Stealth
 
 sys.stdout.reconfigure(encoding='utf-8')
 
+def get_bkk_now() -> datetime:
+    """คืนค่าเวลาปัจจุบันของประเทศไทย (GMT+7) เสมอ แม้รันอยู่บน Cloud ต่างประเทศ"""
+    return datetime.utcnow() + timedelta(hours=7)
+
 # ================= Configuration =================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8790446278:AAGsQeiivf-jSCrM87f7YyznahPwklfUF9U")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8713490893,-5092812499")
@@ -39,14 +43,15 @@ def parse_cookies(cookie_raw: str) -> list:
 
 # In-memory runtime metrics
 RUNTIME_METRICS = {
-    "status": "Starting up...",
-    "start_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    "status": "Active (Monitoring 24/7)",
+    "start_time": get_bkk_now().strftime('%Y-%m-%d %H:%M:%S'),
     "total_checks": 0,
     "last_check_time": "-",
     "next_check_in_seconds": 0,
     "next_check_time": "-",
     "last_error": None,
-    "last_delays": []
+    "last_delays": [],
+    "recent_activity": []
 }
 
 def load_state() -> dict:
@@ -78,7 +83,7 @@ def format_duration(seconds: float) -> str:
         return f"{hours} ชั่วโมง {rem_mins} นาที"
 
 def send_telegram(text: str):
-    """ส่งข้อความเข้า Telegram (รองรับหลาย chat id คั่นด้วยเครื่องหมายจุลภาค)"""
+    """ส่งข้อความเข้า Telegram (ส่งเฉพาะตอนของเข้า หรือของหมด)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     chat_ids = [c.strip() for c in TELEGRAM_CHAT_ID.split(",") if c.strip()]
     success = True
@@ -99,14 +104,16 @@ def send_telegram(text: str):
             success = False
     return success
 
-def check_lazada(page, state: dict) -> bool:
+def check_lazada(page, state: dict) -> tuple[bool, str]:
     """ตรวจเช็คสต็อก Lazada ทุกรุ่นย่อย พร้อมจับเวลาของเข้า-ของหมด"""
     state_changed = False
-    now_ts = datetime.now().strftime('%H:%M:%S')
+    now_bkk = get_bkk_now()
+    now_ts = now_bkk.strftime('%H:%M:%S')
     print(f"\n🔍 [{now_ts}] ตรวจเช็ค Lazada...")
+    status_summary = "ปกติ (สินค้าหมดทุกรุ่น)"
     try:
-        page.goto(LAZADA_URL, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(3000)
+        page.goto(LAZADA_URL, wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_timeout(2000)
 
         content = page.content()
         is_punish = ("punish" in page.url or 
@@ -116,26 +123,27 @@ def check_lazada(page, state: dict) -> bool:
         if is_punish:
             print("  ⚠️ [Lazada] พบบล็อก Captcha ชั่วคราว (จะข้ามรอบนี้ไปก่อน)")
             RUNTIME_METRICS["last_error"] = f"Lazada Captcha at {now_ts}"
-            return state_changed
+            return state_changed, "ติด Captcha ชั่วคราว"
 
         colors = ["Star White", "Night Sky"]
         capacities = ["256GB", "512GB", "1TB", "2TB"]
         found_any = False
+        in_stock_models = []
 
         for col in colors:
             col_el = page.locator(f"span:has-text('{col}')")
             if col_el.count() > 0:
                 found_any = True
-                col_el.first.click(force=True)
-                page.wait_for_timeout(random.randint(250, 400))
+                col_el.first.click(force=True, timeout=2000)
+                page.wait_for_timeout(200)
 
             for cap in capacities:
                 state_key = f"Lazada_{col}_{cap}"
                 cap_el = page.locator(f"span:has-text('{cap}')")
                 if cap_el.count() > 0:
                     found_any = True
-                    cap_el.first.click(force=True)
-                    page.wait_for_timeout(random.randint(250, 400))
+                    cap_el.first.click(force=True, timeout=2000)
+                    page.wait_for_timeout(200)
 
                 is_out = (page.locator("text='สินค้าหมด'").count() > 0 or 
                           page.locator("text='สินค้าหมดสต็อก'").count() > 0)
@@ -147,27 +155,27 @@ def check_lazada(page, state: dict) -> bool:
                 was_in_stock = prev_info.get("status") == "IN_STOCK"
 
                 if is_available and not was_in_stock:
-                    now_str = datetime.now().strftime('%H:%M:%S')
+                    in_stock_models.append(f"{col} {cap}")
                     print(f"  🎉 [Lazada เข้าใหม่!] {col} {cap}")
                     msg = (
                         f"🚨🚨 <b>ของเข้าแล้วบน LAZADA!</b> 🚨🚨\n\n"
                         f"📱 <b>สินค้า:</b> iPhone Duo\n"
                         f"🎨 <b>สี:</b> {col}\n"
                         f"💾 <b>ความจุ:</b> {cap}\n"
-                        f"⏰ <b>เวลาของเข้า:</b> {now_str} น.\n\n"
+                        f"⏰ <b>เวลาของเข้า:</b> {now_ts} น.\n\n"
                         f"👉 <a href='{LAZADA_URL}'>กดสั่งซื้อที่นี่ทันที</a>"
                     )
                     send_telegram(msg)
                     state[state_key] = {
                         "status": "IN_STOCK",
-                        "in_stock_time": datetime.now().isoformat()
+                        "in_stock_time": now_bkk.isoformat()
                     }
                     state_changed = True
 
                 elif not is_available and was_in_stock:
                     start_iso = prev_info.get("in_stock_time")
-                    start_dt = datetime.fromisoformat(start_iso) if start_iso else datetime.now()
-                    end_dt = datetime.now()
+                    start_dt = datetime.fromisoformat(start_iso) if start_iso else now_bkk
+                    end_dt = now_bkk
                     duration_sec = (end_dt - start_dt).total_seconds()
                     duration_str = format_duration(duration_sec)
 
@@ -202,33 +210,41 @@ def check_lazada(page, state: dict) -> bool:
         if found_any:
             print("  ✓ Lazada ตรวจสอบครบทั้ง 8 รุ่นย่อย")
             RUNTIME_METRICS["last_error"] = None
+            if in_stock_models:
+                status_summary = f"🎉 มีของเข้า: {', '.join(in_stock_models)}"
+            else:
+                status_summary = "ตรวจครบ 8 รุ่นย่อย (สินค้าหมด)"
         else:
             print("  ⚠️ Lazada โครงสร้างปุ่มตัวเลือกไม่พร้อม")
+            status_summary = "โครงสร้างหน้าเว็บไม่ตอบสนอง"
 
     except Exception as e:
         print(f"  ❌ [Lazada Error] {e}")
         RUNTIME_METRICS["last_error"] = str(e)
+        status_summary = f"Error: {e}"
 
-    return state_changed
+    return state_changed, status_summary
 
-def check_shopee(page, state: dict) -> bool:
+def check_shopee(page, state: dict) -> tuple[bool, str]:
     """ตรวจเช็คสต็อก Shopee พร้อมจับเวลา"""
     state_changed = False
-    now_ts = datetime.now().strftime('%H:%M:%S')
+    now_bkk = get_bkk_now()
+    now_ts = now_bkk.strftime('%H:%M:%S')
     print(f"🔍 [{now_ts}] ตรวจเช็ค Shopee...")
+    status_summary = "ปกติ (สินค้าหมด)"
     try:
-        page.goto(SHOPEE_URL, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(3000)
+        page.goto(SHOPEE_URL, wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_timeout(2000)
 
         thai_btn = page.locator("button:has-text('ไทย')")
         if thai_btn.count() > 0:
-            thai_btn.first.click()
-            page.wait_for_timeout(1500)
+            thai_btn.first.click(force=True, timeout=2000)
+            page.wait_for_timeout(1000)
 
         content = page.content()
         if "ต้องเข้าสู่ระบบ" in content:
             print("  ⚠️ [Shopee] หน้าร้านค้านี้ต้องใช้ล็อกอิน")
-            return state_changed
+            return state_changed, "ต้องใช้ล็อกอิน"
 
         is_out = "สินค้าหมด" in content or "sold out" in content.lower()
         has_buy = page.locator("button:has-text('ซื้อสินค้า'), button:has-text('ซื้อเลย')").count() > 0
@@ -239,25 +255,25 @@ def check_shopee(page, state: dict) -> bool:
         was_in_stock = prev_info.get("status") == "IN_STOCK"
 
         if is_available and not was_in_stock:
-            now_str = datetime.now().strftime('%H:%M:%S')
             print("  🎉 [Shopee เข้าใหม่!]")
             msg = (
                 f"🚨🚨 <b>ของเข้าแล้วบน SHOPEE!</b> 🚨🚨\n\n"
                 f"📱 <b>สินค้า:</b> iPhone Duo\n"
-                f"⏰ <b>เวลาของเข้า:</b> {now_str} น.\n\n"
+                f"⏰ <b>เวลาของเข้า:</b> {now_ts} น.\n\n"
                 f"👉 <a href='{SHOPEE_URL}'>กดสั่งซื้อที่ Shopee ทันที</a>"
             )
             send_telegram(msg)
             state[state_key] = {
                 "status": "IN_STOCK",
-                "in_stock_time": datetime.now().isoformat()
+                "in_stock_time": now_bkk.isoformat()
             }
             state_changed = True
+            status_summary = "🎉 มีสินค้าพร้อมสั่งซื้อ!"
 
         elif not is_available and was_in_stock:
             start_iso = prev_info.get("in_stock_time")
-            start_dt = datetime.fromisoformat(start_iso) if start_iso else datetime.now()
-            end_dt = datetime.now()
+            start_dt = datetime.fromisoformat(start_iso) if start_iso else now_bkk
+            end_dt = now_bkk
             duration_sec = (end_dt - start_dt).total_seconds()
             duration_str = format_duration(duration_sec)
 
@@ -284,20 +300,22 @@ def check_shopee(page, state: dict) -> bool:
             })
             state["history"] = state["history"][-50:]
             state_changed = True
+            status_summary = "สินค้าเพิ่งหมดสต็อก"
         elif not is_available and state_key not in state:
             state[state_key] = {"status": "OUT_OF_STOCK"}
+            status_summary = "ตรวจสอบแล้ว (ยังหมดอยู่)"
         else:
             print("  ✓ Shopee ตรวจสอบแล้ว (ยังหมดอยู่)")
+            status_summary = "ตรวจสอบแล้ว (ยังหมดอยู่)"
 
     except Exception as e:
         print(f"  ❌ [Shopee Error] {e}")
-        RUNTIME_METRICS["last_error"] = str(e)
+        status_summary = f"Error: {e}"
 
-    return state_changed
+    return state_changed, status_summary
 
 def get_next_sleep_seconds() -> float:
     """สุ่มระยะเวลาพัก 50 - 90 วินาที แบบไม่เชิงเส้น (Non-linear distribution)"""
-    # กระจายค่าแบบสลับสุ่มหลาย Step ป้องกันการตรวจจับ pattern
     intervals = [50, 52, 56, 61, 67, 72, 78, 83, 87, 90]
     base = random.choice(intervals)
     jitter = random.uniform(-1.5, 2.5)
@@ -310,7 +328,6 @@ def monitor_loop():
     print("🚀 สตาร์ทระบบตรวจเช็คสต็อก iPhone Duo แบบ Always-On 24/7 (Cloud Runner)")
     print("=" * 65)
 
-    # ทำงานเงียบๆ โดยไม่ส่งข้อความกวนใจ จะส่งแจ้งเตือนเฉพาะตอน "ของเข้า" หรือ "ของหมด" เท่านั้น
     state = load_state()
     RUNTIME_METRICS["status"] = "Active (Monitoring 24/7)"
 
@@ -336,28 +353,28 @@ def monitor_loop():
             if cookies:
                 ctx.add_cookies(cookies)
             pg = ctx.new_page()
-            # ตัดการโหลดรูปภาพและฟอนต์ เพื่อประหยัด RAM ให้ต่ำกว่า 80MB และเช็คเร็วขึ้น 3 เท่า
-            pg.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
             Stealth().apply_stealth_sync(pg)
             return ctx, pg
 
         context, page = create_context_and_page(browser)
-
         cycle_count = 0
 
         while True:
             cycle_count += 1
             RUNTIME_METRICS["total_checks"] = cycle_count
-            now = datetime.now()
-            RUNTIME_METRICS["last_check_time"] = now.strftime('%H:%M:%S')
+            now_bkk = get_bkk_now()
+            check_time_str = now_bkk.strftime('%H:%M:%S')
+            RUNTIME_METRICS["last_check_time"] = check_time_str
 
-            print(f"\n==================== [ รอบที่ #{cycle_count} | {now.strftime('%d/%m %H:%M:%S')} ] ====================")
+            print(f"\n==================== [ รอบที่ #{cycle_count} | {check_time_str} น. ] ====================")
             
             any_change = False
+            lzd_status = "รอตรวจ"
+            shp_status = "รอตรวจ"
             try:
-                c1 = check_lazada(page, state)
-                time.sleep(random.uniform(1.5, 3.0))
-                c2 = check_shopee(page, state)
+                c1, lzd_status = check_lazada(page, state)
+                time.sleep(random.uniform(1.5, 2.5))
+                c2, shp_status = check_shopee(page, state)
 
                 if c1 or c2:
                     any_change = True
@@ -368,16 +385,9 @@ def monitor_loop():
             if any_change or not os.path.exists(STATE_FILE):
                 save_state(state)
 
-            # ทุก 40 รอบ ให้รีโหลด context เคลียร์ memory cache
-            if cycle_count % 40 == 0:
-                print("🧹 [Memory Maintenance] รีเฟรช browser context เพื่อรักษาความเร็วและหน่วยความจำ...")
-                page.close()
-                context.close()
-                context, page = create_context_and_page(browser)
-
             # คำนวณช่วงเวลาสุ่ม 50 - 90 วินาที แบบ non-linear
             sleep_sec = get_next_sleep_seconds()
-            next_run_dt = datetime.now() + timedelta(seconds=sleep_sec)
+            next_run_dt = get_bkk_now() + timedelta(seconds=sleep_sec)
             RUNTIME_METRICS["next_check_in_seconds"] = sleep_sec
             RUNTIME_METRICS["next_check_time"] = next_run_dt.strftime('%H:%M:%S')
             
@@ -385,7 +395,25 @@ def monitor_loop():
             delays.append(sleep_sec)
             RUNTIME_METRICS["last_delays"] = delays[-10:]
 
-            print(f"💤 สุ่มสลีปแบบ Non-linear: {sleep_sec} วินาที (ตรวจรอบถัดไปเวลา {RUNTIME_METRICS['next_check_time']})...")
+            # บันทึกประวัติกิจกรรมการตรวจเช็คแสดงบนหน้าเว็บ (Live Activity Log)
+            act_logs = RUNTIME_METRICS["recent_activity"]
+            act_logs.append({
+                "cycle": cycle_count,
+                "time": check_time_str,
+                "lazada": lzd_status,
+                "shopee": shp_status,
+                "sleep": f"{sleep_sec}s"
+            })
+            RUNTIME_METRICS["recent_activity"] = act_logs[-15:]
+
+            # ทุก 40 รอบ ให้รีโหลด context เคลียร์ memory cache
+            if cycle_count % 40 == 0:
+                print("🧹 [Memory Maintenance] รีเฟรช browser context เพื่อรักษาความเร็วและหน่วยความจำ...")
+                page.close()
+                context.close()
+                context, page = create_context_and_page(browser)
+
+            print(f"💤 สุ่มสลีปแบบ Non-linear: {sleep_sec} วินาที (ตรวจรอบถัดไปเวลา {RUNTIME_METRICS['next_check_time']} น.)...")
             time.sleep(sleep_sec)
 
 # ================= HTTP Health & Dashboard Server =================
@@ -423,12 +451,28 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         shopee_badge = '<span class="badge in-stock">🟢 มีสินค้า</span>' if shopee_st == "IN_STOCK" else '<span class="badge out">⚪ หมด</span>'
         table_rows += f"<tr><td>Shopee</td><td>ทุกรุ่น (รวม)</td><td>{shopee_badge}</td></tr>"
 
-        # History rows
+        # Check Activity rows (ประวัติการเช็คแบบเรียลไทม์)
+        activity_rows = ""
+        recent_act = RUNTIME_METRICS.get("recent_activity", [])
+        for act in reversed(recent_act):
+            activity_rows += (
+                f"<tr>"
+                f"<td><b>#{act.get('cycle')}</b></td>"
+                f"<td>{act.get('time')} น.</td>"
+                f"<td>{act.get('lazada')}</td>"
+                f"<td>{act.get('shopee')}</td>"
+                f"<td style='color:#38bdf8;'>พัก {act.get('sleep')}</td>"
+                f"</tr>"
+            )
+        if not activity_rows:
+            activity_rows = "<tr><td colspan='5' style='text-align:center; color:#94a3b8; padding:16px;'>กำลังเริ่มรอบการตรวจแรก...</td></tr>"
+
+        # Restock History rows (ประวัติของเข้า)
         hist_rows = ""
         for h in reversed(history[-10:]):
             hist_rows += f"<tr><td>{h.get('platform')}</td><td>{h.get('model')}</td><td>{h.get('start_time')}</td><td>{h.get('duration')}</td></tr>"
         if not hist_rows:
-            hist_rows = "<tr><td colspan='4' style='text-align:center; color:#888;'>ยังไม่มีประวัติการเติมของบันทึกไว้</td></tr>"
+            hist_rows = "<tr><td colspan='4' style='text-align:center; color:#94a3b8; padding:16px;'>ยังไม่มีประวัติสินค้าเข้า (บอทกำลังเฝ้ารอของเติมอย่างต่อเนื่อง 24 ชม.)</td></tr>"
 
         delays_preview = ", ".join([f"{d}s" for d in RUNTIME_METRICS["last_delays"][-6:]]) or "-"
 
@@ -438,7 +482,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>iPhone Duo Cloud Monitor - 24/7 Status</title>
-    <meta http-equiv="refresh" content="30">
+    <meta http-equiv="refresh" content="20">
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -450,7 +494,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
             justify-content: center;
         }}
         .container {{
-            max-width: 720px;
+            max-width: 760px;
             width: 100%;
         }}
         .header {{
@@ -459,7 +503,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         }}
         .header h1 {{
             font-size: 24px;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             color: #38bdf8;
         }}
         .badge-live {{
@@ -468,7 +512,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
             gap: 6px;
             background: rgba(34, 197, 94, 0.2);
             color: #4ade80;
-            padding: 6px 14px;
+            padding: 6px 16px;
             border-radius: 9999px;
             font-weight: 600;
             font-size: 14px;
@@ -488,7 +532,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         }}
         .cards {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 12px;
             margin-bottom: 20px;
         }}
@@ -528,10 +572,10 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         table {{
             width: 100%;
             border-collapse: collapse;
-            font-size: 14px;
+            font-size: 13px;
         }}
         th, td {{
-            padding: 8px 10px;
+            padding: 9px 10px;
             text-align: left;
             border-bottom: 1px solid #334155;
         }}
@@ -588,6 +632,19 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
             </div>
         </div>
 
+        <!-- Live Activity Log -->
+        <div class="section">
+            <h2>📋 บันทึกประวัติการตรวจเช็คล่าสุด (Live Activity Logs)</h2>
+            <table>
+                <thead>
+                    <tr><th>รอบที่</th><th>เวลา (ไทย)</th><th>Lazada (8 รุ่น)</th><th>Shopee</th><th>สุ่มพัก</th></tr>
+                </thead>
+                <tbody>
+                    {activity_rows}
+                </tbody>
+            </table>
+        </div>
+
         <div class="section">
             <h2>📱 สถานะสต็อกสินค้าปัจจุบัน</h2>
             <table>
@@ -601,7 +658,7 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         </div>
 
         <div class="section">
-            <h2>📜 ประวัติการเติมของ 10 ครั้งล่าสุด</h2>
+            <h2>🎉 ประวัติสินค้าเข้า (Restock Events)</h2>
             <table>
                 <thead>
                     <tr><th>แพลตฟอร์ม</th><th>รุ่น</th><th>เวลาของเข้า</th><th>คงอยู่เป็นเวลา</th></tr>
@@ -631,7 +688,6 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode('utf-8'))
 
     def log_message(self, format, *args):
-        # ปิด log ธรรมดาของ HTTP server ไม่ให้รก console
         return
 
 def run_server():
@@ -640,9 +696,7 @@ def run_server():
     server.serve_forever()
 
 if __name__ == "__main__":
-    # รัน HTTP server ใน background thread เพื่อรองรับ Render health check & live dashboard
     t_server = threading.Thread(target=run_server, daemon=True)
     t_server.start()
 
-    # รัน monitoring loop 24/7 ใน main thread
     monitor_loop()
