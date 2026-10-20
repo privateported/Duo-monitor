@@ -21,6 +21,22 @@ LAZADA_URL = "https://www.lazada.co.th/products/pre-order-iphone-duo-23-69-i1625
 SHOPEE_URL = "https://shopee.co.th/product/989284521/45567695488"
 STATE_FILE = "state.json"
 
+DEFAULT_LAZADA_COOKIE = "__wpkreporterwid_=3fd5db6f-9a66-4159-bf07-557398939278; hng=TH|th|THB|764; hng.sig=oIsIuLg2HAFiQqtULu6W5crlFW3isQ-99J1Gg1EhTPc; lwrid=AgGhL4Tq9BVzDCzWcypaX39uI5Gw; lzd_cid=5678560d-ebae-4e4a-b36a-c909b985a105; t_fv=1791798605019; t_uid=uw2gzXsJA19WcjbY7Kuu8r54IzRtT1Ch; cna=wZpTI3Pc/zwCAYbsFw4lJMwv; undefined_click_time=1792381249402; xlly_s=1; t_sid=WSP8mFf4IvOJec4oF1hTsS4ERByQEMf9; utm_channel=NA; _m_h5_tk=5992d56d9c35c3a23ba67643655b83ca_1792481119205; _m_h5_tk_enc=03858397b6764a7231b29551345f0b93; lwrtk=AAIEatdlRkbWWzFgIBwaN8n6c1Lku70NFE3eRh39aANLoO6W1tANT8Q=; epssw=14*B6_JJztDDW17Bo8PdzKoa0P-BznZPLcSoTg_5oHMoHUO-cDtbccmhyOBjz3lANCqkWDnD68oSDD9DDG4R9uNphMguOOnnvCzDSR11W9aS3n_4bcILV0BdtfPHBf07AC_yWkHhNBBaQkSjgSX8P-Ns8IQgDS4iT-XzG5TS4WsFM6owa0AciEeSS0GF4rDD6J4o6QDDrdfeXfZ8y0Gy0DDDDSUIx8Ze9iUBvPqbVSqBJicfEwXblpZDS3XMnympzfdMn5pSdrvPyi-M1LGJPFhOdfXzqBIjCSiA7LtRi8ZCOIV06EEhx0LgQfekIZ_It30wDDDrth_txiXcXcrPWjJ_rC2i_0kSRrN6RxIqXAHHcCxMZqaNW..; tfstk=feRjHHAhjoqjvjBYLF3rFS0BPgf1GnGE6P_9-FF4WsCYXlLd41u0Qxb11gtG0OIw_3T953Aa3mjNX3TM7KWAgO7_1FsWuGRNgdN14HeV0EBO2Q_CltLVHNUDEH8LgIkc_51cs1nEYXl_oEfG6T17ZESDyUbTX1NWeEYcszXyYegXoAwQJ_216hCRyNQf65BAD46R-wfTMOFYeuIlWURzXY2s9Fn7gSqJ421ppjaU8Q_-oMTfxabkNZ6fvtj76Od5lt1plBf-f6bJaQ6FUPuRwevyDa1IGkbXee1A5C0LCG66i__6Emw2Anb9yTtq7RbWCFdhi6atMU1fc9d62yFWvUT9LTOrJXffMipNiFzI0UOX0EAW7PeRGsJ5dI1d4hVFAYtuCz631asEP4wgI4gGzfhBoO61Habu84g7LRXArasEP4wgItQlrXuSPJyG."
+LAZADA_COOKIE_RAW = os.getenv("LAZADA_COOKIE", DEFAULT_LAZADA_COOKIE)
+
+def parse_cookies(cookie_raw: str) -> list:
+    cookies = []
+    for item in cookie_raw.split(";"):
+        if "=" in item:
+            name, val = item.strip().split("=", 1)
+            cookies.append({
+                "name": name,
+                "value": val,
+                "domain": ".lazada.co.th",
+                "path": "/"
+            })
+    return cookies
+
 # In-memory runtime metrics
 RUNTIME_METRICS = {
     "status": "Starting up...",
@@ -185,6 +201,7 @@ def check_lazada(page, state: dict) -> bool:
 
         if found_any:
             print("  ✓ Lazada ตรวจสอบครบทั้ง 8 รุ่นย่อย")
+            RUNTIME_METRICS["last_error"] = None
         else:
             print("  ⚠️ Lazada โครงสร้างปุ่มตัวเลือกไม่พร้อม")
 
@@ -317,13 +334,20 @@ def monitor_loop():
                 "--disable-gpu"
             ]
         )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="th-TH",
-            viewport={"width": 1366, "height": 768}
-        )
-        page = context.new_page()
-        Stealth().apply_stealth_sync(page)
+        def create_context_and_page(browser_inst):
+            ctx = browser_inst.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                locale="th-TH",
+                viewport={"width": 1366, "height": 768}
+            )
+            cookies = parse_cookies(LAZADA_COOKIE_RAW)
+            if cookies:
+                ctx.add_cookies(cookies)
+            pg = ctx.new_page()
+            Stealth().apply_stealth_sync(pg)
+            return ctx, pg
+
+        context, page = create_context_and_page(browser)
 
         cycle_count = 0
 
@@ -355,13 +379,7 @@ def monitor_loop():
                 print("🧹 [Memory Maintenance] รีเฟรช browser context เพื่อรักษาความเร็วและหน่วยความจำ...")
                 page.close()
                 context.close()
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    locale="th-TH",
-                    viewport={"width": 1366, "height": 768}
-                )
-                page = context.new_page()
-                Stealth().apply_stealth_sync(page)
+                context, page = create_context_and_page(browser)
 
             # คำนวณช่วงเวลาสุ่ม 50 - 90 วินาที แบบ non-linear
             sleep_sec = get_next_sleep_seconds()
