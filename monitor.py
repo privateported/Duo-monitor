@@ -59,21 +59,26 @@ def format_duration(seconds: float) -> str:
         return f"{hours} ชั่วโมง {rem_mins} นาที"
 
 def send_telegram(text: str):
-    """ส่งข้อความเข้า Telegram"""
+    """ส่งข้อความเข้า Telegram (รองรับทั้งแชทเดี่ยว, กลุ่ม, หรือหลายคนคั่นด้วยเครื่องหมายจุลภาค)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
-    try:
-        r = requests.post(url, json=payload, timeout=15)
-        print(f"Telegram status: {r.status_code}")
-        return r.status_code == 200
-    except Exception as e:
-        print(f"[Telegram Error] {e}")
-        return False
+    chat_ids = [c.strip() for c in TELEGRAM_CHAT_ID.split(",") if c.strip()]
+    success = True
+    for cid in chat_ids:
+        payload = {
+            "chat_id": cid,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=15)
+            print(f"Telegram ({cid}) status: {r.status_code}")
+            if r.status_code != 200:
+                success = False
+        except Exception as e:
+            print(f"[Telegram Error for {cid}] {e}")
+            success = False
+    return success
 
 def check_lazada(page, state: dict) -> bool:
     """ตรวจเช็คสต็อก Lazada ทุกรุ่นย่อย พร้อมจับเวลาของเข้า-ของหมด"""
