@@ -1,9 +1,9 @@
 name: Stock Monitor Auto 24h
 
 on:
-  schedule:
-    # รันอัตโนมัติทุกๆ 5 นาที ตลอด 24 ชม. (โควตา Unlimited ฟรี)
-    - cron: '*/5 * * * *'
+  # ย้ายไปรัน 24 ชม. บน Render แล้ว จึงปิด cron ใน GitHub Actions เพื่อไม่ให้ทำงานซ้ำซ้อน
+  # schedule:
+  #   - cron: '*/5 * * * *'
   workflow_dispatch:
     # เปิดให้กด Run workflow ด้วยตนเองได้ทุกเมื่อ
 

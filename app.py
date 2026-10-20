@@ -310,16 +310,7 @@ def monitor_loop():
     print("🚀 สตาร์ทระบบตรวจเช็คสต็อก iPhone Duo แบบ Always-On 24/7 (Cloud Runner)")
     print("=" * 65)
 
-    # ส่งสัญญาณแจ้งเตือนเริ่มทำงานเข้า Telegram
-    startup_msg = (
-        "🟢 <b>ระบบตรวจสต็อก 24 ชม. เปิดใช้งานบน Cloud สำเร็จ!</b>\n\n"
-        "⚡ <b>โหมดความถี่:</b> สุ่มตรวจทุก <b>50 – 90 วินาที</b> (Non-linear)\n"
-        "🎯 <b>เป้าหมาย:</b> Lazada (8 รุ่นย่อย) + Shopee\n"
-        "👥 <b>ผู้รับแจ้งเตือน:</b> แชทส่วนตัว + กลุ่ม iPhone Duo\n\n"
-        "<i>ระบบจะเฝ้าดูตลอด 24 ชั่วโมงโดยที่คุณไม่ต้องเปิดคอมทิ้งไว้</i>"
-    )
-    send_telegram(startup_msg)
-
+    # ทำงานเงียบๆ โดยไม่ส่งข้อความกวนใจ จะส่งแจ้งเตือนเฉพาะตอน "ของเข้า" หรือ "ของหมด" เท่านั้น
     state = load_state()
     RUNTIME_METRICS["status"] = "Active (Monitoring 24/7)"
 
