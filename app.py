@@ -131,18 +131,18 @@ def check_lazada(page, state: dict) -> tuple[bool, str]:
         in_stock_models = []
 
         for col in colors:
-            col_el = page.locator(f"span:has-text('{col}')")
+            col_el = page.locator(f"span.sku-variable-img-name:has-text('{col}'), div.sku-prop-content:has-text('{col}')")
             if col_el.count() > 0:
                 found_any = True
-                col_el.first.click(force=True, timeout=2000)
-                page.wait_for_timeout(200)
+                col_el.first.dispatch_event('click')
+                page.wait_for_timeout(250)
 
             for cap in capacities:
                 state_key = f"Lazada_{col}_{cap}"
-                cap_el = page.locator(f"span:has-text('{cap}')")
+                cap_el = page.locator(f"span.sku-variable-name-text:has-text('{cap}'), div.sku-prop-content:has-text('{cap}')")
                 if cap_el.count() > 0:
                     found_any = True
-                    cap_el.first.click(force=True, timeout=2000)
+                    cap_el.first.dispatch_event('click')
                     page.wait_for_timeout(200)
 
                 is_out = (page.locator("text='สินค้าหมด'").count() > 0 or 
