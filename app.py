@@ -461,6 +461,10 @@ def monitor_loop():
             )
             state_curr = load_state()
             active_cookie = state_curr.get("custom_lazada_cookie") or LAZADA_COOKIE_RAW
+            if "lzd_cid" not in active_cookie:
+                active_cookie = "lzd_cid=5678560d-ebae-4e4a-b36a-c909b985a105; " + active_cookie
+            if "__wpkreporterwid_" not in active_cookie:
+                active_cookie = "__wpkreporterwid_=3fd5db6f-9a66-4159-bf07-557398939278; " + active_cookie
             cookies = parse_cookies(active_cookie)
             if cookies:
                 ctx.add_cookies(cookies)
