@@ -465,6 +465,8 @@ def monitor_loop():
                 active_cookie = "lzd_cid=5678560d-ebae-4e4a-b36a-c909b985a105; " + active_cookie
             if "__wpkreporterwid_" not in active_cookie:
                 active_cookie = "__wpkreporterwid_=3fd5db6f-9a66-4159-bf07-557398939278; " + active_cookie
+            if "hng.sig" not in active_cookie:
+                active_cookie = "hng.sig=oIsIuLg2HAFiQqtULu6W5crlFW3isQ-99J1Gg1EhTPc; " + active_cookie
             cookies = parse_cookies(active_cookie)
             if cookies:
                 ctx.add_cookies(cookies)
