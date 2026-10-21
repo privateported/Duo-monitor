@@ -27,6 +27,7 @@ STATE_FILE = "state.json"
 
 DEFAULT_LAZADA_COOKIE = "__wpkreporterwid_=3fd5db6f-9a66-4159-bf07-557398939278; hng=TH|th|THB|764; hng.sig=oIsIuLg2HAFiQqtULu6W5crlFW3isQ-99J1Gg1EhTPc; lwrid=AgGhL4Tq9BVzDCzWcypaX39uI5Gw; lzd_cid=5678560d-ebae-4e4a-b36a-c909b985a105; t_fv=1791798605019; t_uid=uw2gzXsJA19WcjbY7Kuu8r54IzRtT1Ch; cna=wZpTI3Pc/zwCAYbsFw4lJMwv; undefined_click_time=1792381249402; xlly_s=1; t_sid=WSP8mFf4IvOJec4oF1hTsS4ERByQEMf9; utm_channel=NA; _m_h5_tk=5992d56d9c35c3a23ba67643655b83ca_1792481119205; _m_h5_tk_enc=03858397b6764a7231b29551345f0b93; lwrtk=AAIEatdlRkbWWzFgIBwaN8n6c1Lku70NFE3eRh39aANLoO6W1tANT8Q=; epssw=14*B6_JJztDDW17Bo8PdzKoa0P-BznZPLcSoTg_5oHMoHUO-cDtbccmhyOBjz3lANCqkWDnD68oSDD9DDG4R9uNphMguOOnnvCzDSR11W9aS3n_4bcILV0BdtfPHBf07AC_yWkHhNBBaQkSjgSX8P-Ns8IQgDS4iT-XzG5TS4WsFM6owa0AciEeSS0GF4rDD6J4o6QDDrdfeXfZ8y0Gy0DDDDSUIx8Ze9iUBvPqbVSqBJicfEwXblpZDS3XMnympzfdMn5pSdrvPyi-M1LGJPFhOdfXzqBIjCSiA7LtRi8ZCOIV06EEhx0LgQfekIZ_It30wDDDrth_txiXcXcrPWjJ_rC2i_0kSRrN6RxIqXAHHcCxMZqaNW..; tfstk=feRjHHAhjoqjvjBYLF3rFS0BPgf1GnGE6P_9-FF4WsCYXlLd41u0Qxb11gtG0OIw_3T953Aa3mjNX3TM7KWAgO7_1FsWuGRNgdN14HeV0EBO2Q_CltLVHNUDEH8LgIkc_51cs1nEYXl_oEfG6T17ZESDyUbTX1NWeEYcszXyYegXoAwQJ_216hCRyNQf65BAD46R-wfTMOFYeuIlWURzXY2s9Fn7gSqJ421ppjaU8Q_-oMTfxabkNZ6fvtj76Od5lt1plBf-f6bJaQ6FUPuRwevyDa1IGkbXee1A5C0LCG66i__6Emw2Anb9yTtq7RbWCFdhi6atMU1fc9d62yFWvUT9LTOrJXffMipNiFzI0UOX0EAW7PeRGsJ5dI1d4hVFAYtuCz631asEP4wgI4gGzfhBoO61Habu84g7LRXArasEP4wgItQlrXuSPJyG."
 LAZADA_COOKIE_RAW = os.getenv("LAZADA_COOKIE", DEFAULT_LAZADA_COOKIE)
+CONSECUTIVE_CAPTCHA_COUNT = 0
 
 def parse_cookies(cookie_raw: str) -> list:
     cookies = []
@@ -104,8 +105,87 @@ def send_telegram(text: str):
             success = False
     return success
 
+def solve_slider_captcha(page) -> bool:
+    """พยายามเลื่อนสไลเดอร์ปลดล็อก Alibaba TMD Captcha อัตโนมัติ (Human-like drag)"""
+    try:
+        targets = [
+            "#nc_1_n1z",
+            "span.btn_slide",
+            ".btn_slide",
+            "div.nc_scale span",
+            "span[id*='nc_1_n1z']",
+            ".nc-lang-cnt"
+        ]
+        
+        slider = None
+        for sel in targets:
+            loc = page.locator(sel)
+            if loc.count() > 0:
+                for idx in range(loc.count()):
+                    try:
+                        item = loc.nth(idx)
+                        if item.is_visible():
+                            slider = item
+                            break
+                    except Exception:
+                        pass
+            if slider:
+                break
+                
+        if not slider:
+            for frame in page.frames:
+                for sel in targets:
+                    try:
+                        floc = frame.locator(sel)
+                        if floc.count() > 0 and floc.first.is_visible():
+                            slider = floc.first
+                            break
+                    except Exception:
+                        pass
+                if slider:
+                    break
+
+        if slider:
+            box = slider.bounding_box()
+            if box:
+                print("  🔄 [Auto Slider] พบสไลเดอร์! กำลังจำลองการลากเมาส์แบบมนุษย์...")
+                start_x = box["x"] + box["width"] / 2
+                start_y = box["y"] + box["height"] / 2
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                time.sleep(random.uniform(0.1, 0.25))
+                
+                # ลากข้ามแทร็กความกว้างประมาณ 320 - 380px ด้วย easing แบบมนุษย์
+                steps = random.randint(28, 40)
+                dist = random.uniform(330, 380)
+                for step in range(steps):
+                    progress = (step + 1) / steps
+                    move_x = start_x + (dist * (progress ** 0.75)) + random.uniform(-1, 1)
+                    move_y = start_y + random.uniform(-1.5, 1.5)
+                    page.mouse.move(move_x, move_y)
+                    time.sleep(random.uniform(0.015, 0.035))
+                
+                page.mouse.up()
+                page.wait_for_timeout(3000)
+                
+                cur_content = page.content()
+                if "punish" not in page.url and "We need to check if you are a robot" not in cur_content:
+                    print("  ✅ [Auto Slider] ปลดล็อกสไลเดอร์สำเร็จเรียบร้อย!")
+                    return True
+                if page.locator("text='Verification passed'").count() > 0 or page.locator("text='验证通过'").count() > 0:
+                    page.wait_for_timeout(2000)
+                    print("  ✅ [Auto Slider] ยืนยันตัวตนสำเร็จ (Verification passed)!")
+                    return True
+                print("  ⚠️ [Auto Slider] ลองลากสไลเดอร์แล้ว แต่หน้าเว็บยังไม่เปลี่ยน")
+        else:
+            print("  ⚠️ [Auto Slider] ไม่พบคอนโทรลเลอร์สไลเดอร์ในหน้าปัจจุบัน")
+    except Exception as e:
+        print(f"  ❌ [Auto Slider Error] {e}")
+    return False
+
 def check_lazada(page, state: dict) -> tuple[bool, str]:
     """ตรวจเช็คสต็อก Lazada ทุกรุ่นย่อย พร้อมจับเวลาของเข้า-ของหมด"""
+    global CONSECUTIVE_CAPTCHA_COUNT
     state_changed = False
     now_bkk = get_bkk_now()
     now_ts = now_bkk.strftime('%H:%M:%S')
@@ -121,9 +201,33 @@ def check_lazada(page, state: dict) -> tuple[bool, str]:
                      page.locator("text='We need to check if you are a robot'").count() > 0)
 
         if is_punish:
-            print("  ⚠️ [Lazada] พบบล็อก Captcha ชั่วคราว (จะข้ามรอบนี้ไปก่อน)")
-            RUNTIME_METRICS["last_error"] = f"Lazada Captcha at {now_ts}"
-            return state_changed, "ติด Captcha ชั่วคราว"
+            print("  ⚠️ [Lazada] พบบล็อก Captcha กำลังพยายามปลดล็อกสไลเดอร์อัตโนมัติ (Auto Slider Solver)...")
+            solved = solve_slider_captcha(page)
+            if solved:
+                page.wait_for_timeout(2500)
+                content = page.content()
+                is_punish = ("punish" in page.url or 
+                             "We need to check if you are a robot" in content or
+                             page.locator("text='We need to check if you are a robot'").count() > 0)
+
+        if is_punish:
+            CONSECUTIVE_CAPTCHA_COUNT += 1
+            RUNTIME_METRICS["last_error"] = f"Lazada Captcha at {now_ts} (สะสม {CONSECUTIVE_CAPTCHA_COUNT} รอบ)"
+            print(f"  ⚠️ [Lazada] ติด Captcha ชั่วคราว (สะสม {CONSECUTIVE_CAPTCHA_COUNT} รอบ)")
+
+            # หากติดสะสม 3 รอบ แจ้งเตือนเข้า Telegram ให้ผู้ใช้ทราบพร้อมลิงก์เว็บ
+            if CONSECUTIVE_CAPTCHA_COUNT == 3:
+                send_telegram(
+                    "⚠️ <b>แจ้งเตือนระบบ: Lazada ติด Captcha ต่อเนื่อง 3 รอบ</b>\n\n"
+                    "ระบบกำลังเข้าสู่โหมด <b>Auto Cooldown (พัก 5–8 นาที)</b> เพื่อให้ระบบปลดล็อกเอง\n\n"
+                    "📱 <i>หากต้องการอัปเดต Cookie ใหม่ทันทีผ่านมือถือ:</i>\n"
+                    "👉 <a href='https://iphone-duo-monitor.onrender.com/'>กดเปิดหน้าเว็บเพื่อวาง Cookie</a>"
+                )
+
+            if CONSECUTIVE_CAPTCHA_COUNT >= 3:
+                return state_changed, f"ติด Captcha (เข้าสู่ Auto Cooldown สะสม {CONSECUTIVE_CAPTCHA_COUNT} รอบ)"
+            else:
+                return state_changed, "ติด Captcha ชั่วคราว"
 
         colors = ["Star White", "Night Sky"]
         capacities = ["256GB", "512GB", "1TB", "2TB"]
@@ -208,6 +312,7 @@ def check_lazada(page, state: dict) -> tuple[bool, str]:
                     state[state_key] = {"status": "OUT_OF_STOCK"}
 
         if found_any:
+            CONSECUTIVE_CAPTCHA_COUNT = 0
             print("  ✓ Lazada ตรวจสอบครบทั้ง 8 รุ่นย่อย")
             RUNTIME_METRICS["last_error"] = None
             if in_stock_models:
@@ -354,7 +459,9 @@ def monitor_loop():
                 locale="th-TH",
                 viewport={"width": 1366, "height": 768}
             )
-            cookies = parse_cookies(LAZADA_COOKIE_RAW)
+            state_curr = load_state()
+            active_cookie = state_curr.get("custom_lazada_cookie") or LAZADA_COOKIE_RAW
+            cookies = parse_cookies(active_cookie)
             if cookies:
                 ctx.add_cookies(cookies)
             pg = ctx.new_page()
@@ -427,8 +534,13 @@ def monitor_loop():
             state["recent_activity"] = RUNTIME_METRICS["recent_activity"]
             save_state(state)
 
-            # คำนวณช่วงเวลาสุ่ม 50 - 90 วินาที แบบ non-linear
-            sleep_sec = get_next_sleep_seconds()
+            # คำนวณช่วงเวลาสุ่ม 50 - 90 วินาที แบบ non-linear หรือ Auto Cooldown 5 - 8 นาที
+            if CONSECUTIVE_CAPTCHA_COUNT >= 3:
+                sleep_sec = round(random.uniform(300.0, 480.0), 1)
+                print(f"🛑 [Auto Cooldown] พักยาว {sleep_sec} วินาที (~{round(sleep_sec/60, 1)} นาที) เพื่อรอระบบความปลอดภัยคลายตัว...")
+            else:
+                sleep_sec = get_next_sleep_seconds()
+
             next_run_dt = get_bkk_now() + timedelta(seconds=sleep_sec)
             RUNTIME_METRICS["next_check_in_seconds"] = sleep_sec
             RUNTIME_METRICS["next_check_time"] = next_run_dt.strftime('%H:%M:%S')
@@ -438,11 +550,40 @@ def monitor_loop():
             delays.append(sleep_sec)
             RUNTIME_METRICS["last_delays"] = delays[-10:]
 
-            print(f"💤 สุ่มสลีปแบบ Non-linear: {sleep_sec} วินาที (ตรวจรอบถัดไปเวลา {RUNTIME_METRICS['next_check_time']} น.)...")
+            mode_text = f"Auto Cooldown: {sleep_sec} วินาที" if CONSECUTIVE_CAPTCHA_COUNT >= 3 else f"Non-linear: {sleep_sec} วินาที"
+            print(f"💤 สุ่มสลีปแบบ {mode_text} (ตรวจรอบถัดไปเวลา {RUNTIME_METRICS['next_check_time']} น.)...")
             time.sleep(sleep_sec)
 
 # ================= HTTP Health & Dashboard Server =================
 class HealthDashboardHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path == "/update-cookie":
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length).decode('utf-8')
+                from urllib.parse import parse_qs
+                parsed = parse_qs(post_data)
+                cookie_val = parsed.get("cookie", [""])[0].strip()
+                if cookie_val:
+                    state = load_state()
+                    state["custom_lazada_cookie"] = cookie_val
+                    save_state(state)
+                    global LAZADA_COOKIE_RAW, CONSECUTIVE_CAPTCHA_COUNT
+                    LAZADA_COOKIE_RAW = cookie_val
+                    CONSECUTIVE_CAPTCHA_COUNT = 0
+                    print(f"🍪 [Web Cookie Update] ได้รับและบันทึก Cookie ใหม่เรียบร้อยแล้ว! ({len(cookie_val)} ตัวอักษร)")
+                    send_telegram("✅ <b>ได้รับ Cookie Lazada ชุดใหม่ผ่านหน้าเว็บแล้ว!</b>\nระบบเริ่มนำไปใช้ตรวจเช็คสต็อกทันทีเรียบร้อยครับ")
+                    
+                    self.send_response(303)
+                    self.send_header("Location", "/?cookie_updated=1")
+                    self.end_headers()
+                    return
+            except Exception as e:
+                print(f"[POST Error] {e}")
+
+        self.send_response(400)
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/api/state":
             state = load_state()
@@ -460,6 +601,16 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
         # Render Web Service Dashboard & Health Check
         state = load_state()
         history = state.get("history", [])
+
+        cookie_alert = ""
+        if "cookie_updated=1" in self.path:
+            cookie_alert = """
+            <div style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold;">
+                ✅ อัปเดต Cookie Lazada สำเร็จแล้ว! บอทนำ Cookie ใหม่ไปใช้ตรวจเช็คสต็อกทันที
+            </div>
+            """
+
+        cookie_status_label = "Cookie กำหนดเอง (อัปเดตผ่านหน้าเว็บ)" if state.get("custom_lazada_cookie") else "Cookie เริ่มต้น"
 
         # Create live status table
         table_rows = ""
@@ -638,6 +789,8 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
             <div class="badge-live"><div class="pulse"></div> กำลังทำงาน 24 ชม. (Render Cloud)</div>
         </div>
 
+        {cookie_alert}
+
         <div class="cards">
             <div class="card">
                 <div class="title">รอบการตรวจทั้งหมด</div>
@@ -692,6 +845,21 @@ class HealthDashboardHandler(BaseHTTPRequestHandler):
                     {hist_rows}
                 </tbody>
             </table>
+        </div>
+
+        <!-- Mobile Cookie Update Form -->
+        <div class="section" style="border: 1px solid #0284c7; background: #0c1833;">
+            <h2 style="color: #38bdf8; margin-top: 0;">🍪 อัปเดต Cookie Lazada (ผ่านมือถือได้ทันที ไม่ต้องเปิดคอม)</h2>
+            <p style="font-size: 13px; color: #94a3b8; margin-bottom: 12px; line-height: 1.5;">
+                หากระบบขึ้นสถานะ <b>"ติด Captcha ชั่วคราว"</b> คุณสามารถเปิด Lazada บนเบราว์เซอร์มือถือ แล้วคัดลอก Cookie มาวางลงในช่องนี้ บอทจะเริ่มใช้ Cookie ใหม่ตรวจเช็คต่อทันทีครับ
+            </p>
+            <form action="/update-cookie" method="POST">
+                <textarea name="cookie" rows="3" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="วาง Cookie ที่คัดลอกมาที่นี่... (เช่น __wpkreporterwid_=...; lzd_cid=...)" required></textarea>
+                <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <span style="font-size: 12px; color: #94a3b8;">📌 สถานะ: <b style="color:#38bdf8;">{cookie_status_label}</b></span>
+                    <button type="submit" style="background: #0284c7; color: white; border: none; padding: 10px 22px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px;">💾 บันทึกและเริ่มใช้ทันที</button>
+                </div>
+            </form>
         </div>
 
         <div class="section" style="font-size: 13px; color: #94a3b8;">
